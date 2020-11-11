@@ -4,4 +4,4 @@ The work aims to *evolve*  an arbitrarily-shaped robot and the distribution of t
 robot. To employ evolutionary algorithms, a physics simulator is built to intergrate with the algorithms.
 
 ## Physics Simulator
-![image](https://github.com/chiahohsiung/Evolving-Robot/images/bouncing_cube.gif)
+![image](https://github.com/chiahohsiung/Evolving-Robot/images/blob/master/bouncing_cube.gif)
