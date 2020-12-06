@@ -8,6 +8,9 @@ using namespace std;
 
 /* TO DO:
 1. define a variable for gravity
+2. integrate zero the force 
+3. bouncing error
+4. integrate with opengl
 */
 
 
@@ -102,20 +105,20 @@ int main(){
 
 	// positions?
 
-	float mass_pos[4][3] = {
+	float mass_pos[8][3] = {
 		{-0.1f, -0.1f,-0.1f},
 		{-0.1f,  0.1f,-0.1f},
 		{ 0.1f,  0.1f,-0.1f},
-		{ 0.1f, -0.1f,-0.1f}
-		// {-0.1f, -0.1f, 0.1f},
-		// {-0.1f,  0.1f, 0.1f},
-		// { 0.1f,  0.1f, 0.1f},
-		// { 0.1f, -0.1f, 0.1f} 
+		{ 0.1f, -0.1f,-0.1f},
+		{-0.1f, -0.1f, 0.1f},
+		{-0.1f,  0.1f, 0.1f},
+		{ 0.1f,  0.1f, 0.1f},
+		{ 0.1f, -0.1f, 0.1f} 
 	};
 
 	// instancaite every mass on the robot (cube) and store them in mass_ls
 	vector<Mass> mass_ls;
-	for (int i {0}; i<4; ++i){
+	for (int i {0}; i<8; ++i){
 		Mass m(i, 0.1, mass_pos[i]);
 		mass_ls.push_back(m);
 	}
@@ -152,12 +155,13 @@ int main(){
 	// return 0;
 	// Simulate 
 	float t = 0.0f;
+	float t_prev = 0.0f;
 	float dt = 0.0001f;
 
-	while (t < 0.01){
+	while (t < 1){
 		t += dt;
 
-		cout << "T: " << t << endl;
+		// cout << "T: " << t << endl;
 		// zero the force in every mass
 		// Later integrate in update_pos
 		for (int i {0}; i<<mass_ls.size(); ++i){
@@ -181,14 +185,26 @@ int main(){
 		for (int i {0}; i<mass_ls.size(); ++i){
 			mass_ls[i].update_pos(dt);
 		}
-		for (int i {0}; i<mass_ls.size(); ++i){
-			cout << '\n' << "Mass Index: " << mass_ls[i].index << endl;
-			cout << "Mass Positions: ";
-			for (int j {0}; j<3; ++j)
-				cout << mass_ls[i].p[j] << ' ' ;
+	// 	for (int i {0}; i<mass_ls.size(); ++i){
+	// 		cout << '\n' << "Mass Index: " << mass_ls[i].index << endl;
+	// 		cout << "Mass Positions: ";
+	// 		for (int j {0}; j<3; ++j)
+	// 			cout << mass_ls[i].p[j] << ' ' ;
+	// 	}
+	// cout << endl;
+
+		if (t - t_prev > 1.0 / 60.0){
+			t_prev = t;
+			float cur_buffer_data[8 * 3];
+			for (int i {0}; i<8; ++i){
+				for (int j {0}; j<3; ++j)
+					cur_buffer_data[3 * i + j] = mass_ls[i].p[j];
+			}
+			for (int i {0}; i<8*3; ++i)
+				cout << cur_buffer_data[i] << " ";
+			cout << endl;
 		}
-	cout << endl;
-	
+			
 
 	}
 	return 0;
