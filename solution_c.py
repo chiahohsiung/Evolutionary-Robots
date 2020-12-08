@@ -1,0 +1,461 @@
+import numpy as np
+import random
+import math
+from copy import deepcopy
+
+# 12/7 make edge list a set to make remove a spring quicker
+
+new_mass_candidate = [[-0.1, -0.1, 0],
+					  [ 0.0, -0.1, 0],
+					  [ 0.1, -0.1, 0],
+					  [ 0.2, -0.1, 0],
+					 
+					  [-0.1,  0.0, 0],
+					  [ 0.2,  0.0, 0],
+ 
+					  [-0.1,  0.1, 0],
+					  [ 0.2,  0.1, 0],
+
+					  [-0.1,  0.2, 0],
+					  [ 0.0,  0.2, 0],
+					  [ 0.1,  0.2, 0],
+					  [ 0.2,  0.2, 0],
+
+					  [-0.1, -0.1, 0.1],
+					  [ 0.0, -0.1, 0.1],
+					  [ 0.1, -0.1, 0.1],
+					  [ 0.2, -0.1, 0.1],
+					 
+					  [-0.1,  0.0, 0.1],
+					  [ 0.2,  0.0, 0.1],
+ 
+					  [-0.1,  0.1, 0.1],
+					  [ 0.2,  0.1, 0.1],
+
+					  [-0.1,  0.2, 0.1],
+					  [ 0.0,  0.2, 0.1],
+					  [ 0.1,  0.2, 0.1],
+					  [ 0.2,  0.2, 0.1]]
+
+
+
+def distance(m1, m2):
+    return np.linalg.norm(m1.p-m2.p)
+
+def direction(m1, m2):
+    # m2 to m1 
+    vector = m2.p - m1.p
+    vector /= np.linalg.norm(vector)
+    return vector
+
+
+class Mass(object):
+    """docstring for Mass"""
+    
+    def __init__(self, index, m, p, v=np.zeros((3, 1)), a=np.zeros((3, 1)), F=np.zeros((3, 1))):
+        super(Mass, self).__init__()
+        self.m = m # in kg
+        self.p = p
+        self.v = v
+        self.a = a
+        self.F = F
+        self.index = index
+        self.miu_s = 1
+        self.miu_k = 0.8
+    
+    
+    def update_pos(self, dt):
+        zero_v = False
+        if self.p[2] < 0:
+            frict, zero_v = self.friction()
+            self.F = self.F + frict
+             
+            self.F = self.F + ground_k * np.array([0,0,float(-self.p[2])]).reshape((3, 1))
+            
+        self.a = self.F / self.m
+        self.a = self.a + g
+        self.v = self.v + self.a * dt
+        if zero_v:
+            self.v = np.concatenate((np.zeros((2, 1)), self.v[2:]))
+        self.v = self.v * 0.999
+        self.p = self.p + self.v * dt
+    
+    def friction(self):
+        if self.F[2] >= 0:
+            return (np.zeros((3, 1)), 0)
+        else:
+            F_h = np.concatenate((self.F[:2], np.zeros((1, 1))))
+            F_n = np.concatenate((np.zeros((2, 1)), self.F[2:]))
+            direction_h = F_h / np.linalg.norm(F_h)
+
+            # [1 2 3] 
+            # F_h = [1 2 0] F_n = [0 0 3]
+            F_h_abs = np.linalg.norm(F_h)
+            F_n_abs = -float(F_n[2])
+
+            if F_h_abs >= F_n_abs * self.miu_s: # kinetic friction -< add a ground friction -F_n * miu_k
+                return (-direction_h * F_n_abs * self.miu_k, 0)
+            
+            else: # static friction -> add a ground friction -F_h
+                return (direction_h * -F_h_abs, 1)
+
+
+class Spring(object):
+    """docstring for Spring"""
+    def __init__(self, k, l_0, m1_index, m2_index, b, c):
+        super(Spring, self).__init__()
+        self.k = k # spring constant
+        self.l_0 = l_0 # rest length in meter
+        self.m1_index = m1_index # index od the first mass it connects to
+        self.m2_index = m2_index
+        self.b = b
+        self.c = c 
+
+
+class Material(object):
+	"""
+	"""
+	def __init__(self, center=0, radius=0.1, k=10000, b=0, c=0):
+		super(Material, self).__init__()
+		self.center = center
+		self.radius = radius
+		# spring sin equation l_0_init = (1 + b * sin(wt + c))
+		self.k = k
+		self.b = b
+		self.c = c
+
+
+class Solution(object):
+	"""docstring for Solution"""
+	def __init__(self, material_ls, point_ls, edge_ls):
+		super(Solution, self).__init__()
+		self.material_ls = material_ls
+		# [Material1, Material2, Material3]
+		# Material center k r b c
+		self.point_ls = point_ls # level_arr 2D array
+		# [[0.  0.  0. ]
+		# [0.  0.  0.1]
+		# [0.1 0.  0. ]
+		# [0.1 0.  0.1]
+		# [0.  0.1 0. ]
+		# [0.  0.1 0.1]
+		# [0.1 0.1 0. ]
+		# [0.1 0.1 0.1]]
+		self.edge_ls = edge_ls # edges
+		# self.bound = [[0, 0.1 ]]
+
+
+class Robot(object):
+	"""docstring for Robot"""
+	offset_ls = []
+
+	def __init__(self):
+		super(Robot, self).__init__()
+		self.mass_ls = []
+		self.spring_ls = []
+
+	def apply_solution(self, solution):
+		### Shape: Masses and Springs ###
+		for i, pos in enumerate(solution.point_ls):
+		    mass = Mass(i, m=0.1, p=(pos.reshape(3, 1)))
+		    self.mass_ls.append(mass)
+
+		# for each spring, find its closest material
+		# solution [mat, mat, mat]
+		# mat center k b c 
+
+
+		for comb in solution.edge_ls:
+		    i, j = comb
+		    # spring mid point 
+		    spring_p = (self.mass_ls[i].p + self.mass_ls[j].p) / 2
+
+		    min_dis = float('inf')
+		    min_index = []
+
+		    for k, mat in enumerate(solution.material_ls):
+
+		    	cur_dis = np.linalg.norm(spring_p-self.mass_ls[mat.center].p) 
+		    	if cur_dis == min_dis: 		    		
+		    		min_index.append(k)	
+		    	elif cur_dis < min_dis:
+		    		min_dis = cur_dis
+		    		min_index = [k]
+
+		    # this might be buggy
+		    k = np.mean([solution.material_ls[i].k for i in min_index])
+		    b = np.mean([solution.material_ls[i].b for i in min_index])
+		    c = np.mean([solution.material_ls[i].c for i in min_index])
+		    l_0 = distance(self.mass_ls[i], self.mass_ls[j])
+		    spring = Spring(k, l_0, i, j, b, c)
+		    self.spring_ls.append(spring)
+
+
+	def robot_center(self):
+		aux_mass_ls = []
+		for mass in self.mass_ls:
+			aux_mass_ls.append(mass.p)
+		return np.mean(np.array(aux_mass_ls), axis=0)
+
+
+def evaluate_sol(solution, g, dt):
+	global counter
+	counter += 1
+	print('evaluation: ', counter)
+	# evaluate
+
+	# make a robot and apply the solution to it 
+	robot = Robot()
+	robot.apply_solution(solution)
+
+	if counter == 1:
+		# initial rest length of each spring
+		# only do once add to the Robot class attribute
+		offset_ls = []
+		for spring in robot.spring_ls:
+			l_0 = spring.l_0
+			offset_ls.append(l_0)
+		Robot.offset_ls = offset_ls
+
+    # simulate the robot moving for (t_end - t) secs  
+	robot_start = robot.robot_center()
+	
+	t = 0
+	t_end = 2
+	while t < t_end:
+		t += dt
+		# zero the force applied to every mass
+		for i in range(len(robot.mass_ls)):
+			robot.mass_ls[i].F = np.zeros((3, 1))
+
+		for j, spring in enumerate(robot.spring_ls):
+			m1 = robot.mass_ls[spring.m1_index]
+			m2 = robot.mass_ls[spring.m2_index]
+			w = 10
+			spring.l_0 = (np.sin(w * t + spring.c) * spring.b + 1) * Robot.offset_ls[j]
+			l = distance(m1, m2)
+			F = spring.k * (l - spring.l_0) # check the direction
+			F = direction(m1, m2) * F
+			F = F.reshape(F.shape[0], -1)
+			robot.mass_ls[spring.m1_index].F = robot.mass_ls[spring.m1_index].F + F
+			robot.mass_ls[spring.m2_index].F = robot.mass_ls[spring.m2_index].F - F
+
+		for i in range(len(robot.mass_ls)):
+			robot.mass_ls[i].update_pos(dt)
+
+	# calculate the 
+	robot_end = robot.robot_center()
+	travel_dis = np.linalg.norm(robot_end[:2] - robot_start[:2])
+	# print('robot_start', robot_start)
+	# print('robot_end', robot_end)
+	# print('travel_dis', travel_dis)
+	return travel_dis
+
+
+
+# Variation
+def mutation(solution):
+	### Material ###
+	index = np.random.randint(0, len(solution.material_ls))
+
+	# if random.randint(0, 1):
+	# 	solution[index].center = min(7, solution[index].center + 1)
+	# else:
+	# 	solution[index].center = max(0, solution[index].center-1)
+
+	solution.material_ls[index].k = max(1000, solution.material_ls[index].k + np.random.uniform(-1, 1) * 200)
+	solution.material_ls[index].b = max(0, min(1, solution.material_ls[index].b + np.random.uniform(-1, 1) * 0.02))
+	solution.material_ls[index].c = solution.material_ls[index].c + np.random.uniform(-1, 1) * math.pi / 5
+
+	### Shape ###
+
+	# ['add_m', 's']
+
+	choice = np.random.choice([0, 1, 2, 3], p=[0.3, 0.1, 0.3, 0.3])
+	# choice = 3
+	# print('choice', choice)
+	if choice == 0:
+		# delete a spring
+		
+		delete_edge = random.sample(solution.edge_ls, k=1)[0]
+		# print('delete_edge', delete_edge)
+		solution.edge_ls.remove(delete_edge)
+	
+	elif choice == 1:
+		# delete a mass
+		index = np.random.randint(solution.point_ls.shape[0])
+		# print('index', index)
+		solution.point_ls = np.delete(solution.point_ls, index, axis=0)
+		# delete springs connected to the mass
+		for comb in list(solution.edge_ls): 
+			if index in comb:
+				solution.edge_ls.remove(comb)
+
+	elif choice == 2 :
+		# add a spring 
+		index1, index2 = np.random.choice(solution.point_ls.shape[0], size=2, replace=False)
+		# print('index1, index2', (index1, index2))
+		if index2 < index1:
+			index1, index2 = index2, index1
+		if (index1, index2) not in solution.edge_ls:
+			# print('index1, index2', (index1, index2))
+			solution.edge_ls.add((index1, index2))
+
+	elif choice == 3:
+		# add a mass
+		n = solution.point_ls.shape[0]
+		new_point = np.array(random.choice(new_mass_candidate)).reshape((1, 3))
+		
+		# print('new_point', new_point)
+		# randomly select two masses to connect to 
+		index1, index2 = np.random.choice(n, size=2, replace=False)	
+		# print('index1, index2', index1, index2)
+		# put the new point and edges in the solution
+		solution.point_ls = np.concatenate((solution.point_ls, new_point))
+		solution.edge_ls.add((index1, n))
+		solution.edge_ls.add((index2, n))
+
+def crossover(solution1, solution2):
+	num_of_mat = 2
+	new_solution1 = deepcopy(solution1)
+	new_solution2 = deepcopy(solution2)
+	index1, index2 = np.random.randint(low=0, high=num_of_mat, size=2)
+	new_solution1.material_ls[index1], new_solution2.material_ls[index2] = new_solution2.material_ls[index2], new_solution1.material_ls[index1]
+
+	return new_solution1, new_solution2
+
+counter = 0
+g = np.array([0, 0, -9.81]).reshape((3, 1))	
+ground_k = 100000
+def main():
+	popsize = 2
+	num_of_mat = 2
+
+	
+	total_evaluation = 100
+
+	
+	dt = 0.001
+	# k = [10000, 2000, 5000]
+	k_ls = np.arange(2, 10) * 1000.0
+	b_init = 0.25
+	# c = [0, 0, 0]
+	point_ls_init = np.array([[0.,  0.,  0. ],
+							  [0.,  0.,  0.1],
+							  [0.1, 0.,  0. ],
+							  [0.1, 0.,  0.1],
+							  [0.,  0.1, 0. ],
+						 	  [0.,  0.1, 0.1],
+							  [0.1, 0.1, 0. ],
+							  [0.1, 0.1, 0.1]])
+
+	edge_ls_init = set([(i,j) for i in range(len(point_ls_init)) for j in range(i+1, len(point_ls_init))])
+
+
+
+	solutions = {} # store solutions as dict for quick remove and access
+	score_ls = {}
+
+	for i in range(popsize):
+		# each solution contains 3 materials
+
+		material_ls = []
+		for j in range(num_of_mat):
+
+			# Materials
+			center = random.randint(0, len(point_ls_init)-1)
+			k = np.random.choice(k_ls)
+			r = 0.1
+			b = np.random.uniform(0, 1) * b_init
+			c = np.random.uniform(-1, 1) * math.pi
+			mat = Material(center, r, k, b, c)
+			material_ls.append(mat)
+
+			# Shape
+
+		solution = Solution(material_ls, point_ls_init, edge_ls_init)
+		solutions[i] = solution
+		score_ls[i] = evaluate_sol(solution, g, dt)
+	print(score_ls)
+
+	# exit()
+
+	### print solutions
+	# for i in range(popsize):
+	# 	solution = solutions[i]
+	# 	print('solution.point_ls', solution.point_ls)
+	# 	print('solutions.edge_ls', solution.edge_ls)
+	# 	for mat in solution.material_ls:
+	# 		print(f'mat {i} ', mat.center, mat.k, mat.radius, mat.b, mat.c)
+	# 	for i in range(10):
+	# 		mutation(solution)
+	# 		for mat in solution.material_ls:
+	# 			print(f'mat {i} ', mat.center, mat.k, mat.radius, mat.b, mat.c)
+
+	# 		print('solution.point_ls', solution.point_ls)
+	# 		print('solutions.edge_ls', solution.edge_ls)	
+
+	print('\nEVOLVING\n')
+	print('Popsize: ', popsize)
+	print('Evalutation: ', total_evaluation)
+	gen = 0
+	best_score_ls = []
+	while counter < total_evaluation:
+		gen += 1
+		print('Gen: ', gen)
+		# one generation
+		index1, index2 = random.sample(range(popsize), 2)
+		score_ls_cur = [score_ls[index1], score_ls[index2]]
+		print('Chosen parents', index1, index2)
+
+		parent1 = solutions[index1]
+		parent2 = solutions[index2]
+
+		# Crossover
+		solution1, solution2 = crossover(parent1, parent2)
+
+		# exit()
+		# Mutation
+		mutation(solution1)
+		mutation(solution2)
+
+		score_ls_cur += [evaluate_sol(solution1, g, dt), evaluate_sol(solution2, g, dt)]
+		solutions_cur = [parent1, parent2, solution1, solution2]
+		print(score_ls_cur)
+		print('counter', counter)
+
+		# Compare 
+		print(sorted(range(len(score_ls_cur)), key=lambda k: score_ls_cur[k]))
+		second, best = sorted(range(len(score_ls_cur)), key=lambda k: score_ls_cur[k])[-2:]
+
+		score_ls[index1], score_ls[index2] = score_ls_cur[best], score_ls_cur[second]
+		solutions[index1], solutions[index2] = solutions_cur[best], solutions_cur[second]
+		best_score_ls.append(max(score_ls.values()))
+		break
+	print('best_score_ls', best_score_ls)
+	# save solution
+	best_key = max(score_ls, key=score_ls.get) 
+	best_solution = solutions[best_key]
+
+	exit()
+	mat_ls = []
+	for mat in best_solution:
+		print(type(mat.center), type(mat.k), type(mat.b), type(mat.c))
+		mat_ls.append([mat.center, mat.k, mat.b, mat.c])
+			# exit()
+		result = {'solution': mat_ls, 'best_score_ls': best_score_ls}
+		print('result', result)
+		output_path = 'cube_eval40_pop20.json'
+		with open(output_path, 'w') as outfile:
+			outfile.write(json.dumps(result, indent=4, sort_keys=True))
+
+if __name__ == '__main__':
+	main()
+
+
+
+
+
+
+
+		
