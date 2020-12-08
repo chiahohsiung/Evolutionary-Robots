@@ -2,7 +2,8 @@ import numpy as np
 import random
 import math
 from copy import deepcopy
-
+from collections import defaultdict
+from functools import partial
 # 12/7 make edge list a set to make remove a spring quicker
 
 new_mass_candidate = [[-0.1, -0.1, 0],
@@ -36,7 +37,6 @@ new_mass_candidate = [[-0.1, -0.1, 0],
 					  [ 0.0,  0.2, 0.1],
 					  [ 0.1,  0.2, 0.1],
 					  [ 0.2,  0.2, 0.1]]
-
 
 
 def distance(m1, m2):
@@ -127,12 +127,12 @@ class Material(object):
 
 class Solution(object):
 	"""docstring for Solution"""
-	def __init__(self, material_ls, point_ls, edge_ls):
+	def __init__(self, material_ls, point_dict, edge_ls):
 		super(Solution, self).__init__()
 		self.material_ls = material_ls
 		# [Material1, Material2, Material3]
 		# Material center k r b c
-		self.point_ls = point_ls # level_arr 2D array
+		self.point_dict = point_dict # level_arr {0:array, 1:array ...}
 		# [[0.  0.  0. ]
 		# [0.  0.  0.1]
 		# [0.1 0.  0. ]
@@ -141,7 +141,7 @@ class Solution(object):
 		# [0.  0.1 0.1]
 		# [0.1 0.1 0. ]
 		# [0.1 0.1 0.1]]
-		self.edge_ls = edge_ls # edges
+		self.edge_ls = edge_ls # edges 
 		# self.bound = [[0, 0.1 ]]
 
 
@@ -156,7 +156,7 @@ class Robot(object):
 
 	def apply_solution(self, solution):
 		### Shape: Masses and Springs ###
-		for i, pos in enumerate(solution.point_ls):
+		for i, pos in solution.point_dict.items():
 		    mass = Mass(i, m=0.1, p=(pos.reshape(3, 1)))
 		    self.mass_ls.append(mass)
 
@@ -168,6 +168,8 @@ class Robot(object):
 		for comb in solution.edge_ls:
 		    i, j = comb
 		    # spring mid point 
+		    print(len(self.mass_ls))
+		    print('i, j ', i, j )
 		    spring_p = (self.mass_ls[i].p + self.mass_ls[j].p) / 2
 
 		    min_dis = float('inf')
@@ -207,16 +209,11 @@ def evaluate_sol(solution, g, dt):
 	# make a robot and apply the solution to it 
 	robot = Robot()
 	robot.apply_solution(solution)
-
-	if counter == 1:
-		# initial rest length of each spring
-		# only do once add to the Robot class attribute
-		offset_ls = []
-		for spring in robot.spring_ls:
-			l_0 = spring.l_0
-			offset_ls.append(l_0)
-		Robot.offset_ls = offset_ls
-
+	# for i in range(len(robot.spring_ls)):
+	# 	print(robot.spring_ls[i].m1_index, robot.spring_ls[i].m2_index)
+	# 	print(i)
+	# exit()
+	
     # simulate the robot moving for (t_end - t) secs  
 	robot_start = robot.robot_center()
 	
@@ -232,9 +229,9 @@ def evaluate_sol(solution, g, dt):
 			m1 = robot.mass_ls[spring.m1_index]
 			m2 = robot.mass_ls[spring.m2_index]
 			w = 10
-			spring.l_0 = (np.sin(w * t + spring.c) * spring.b + 1) * Robot.offset_ls[j]
+			cur_l_0 = (np.sin(w * t + spring.c) * spring.b + 1) * spring.l_0
 			l = distance(m1, m2)
-			F = spring.k * (l - spring.l_0) # check the direction
+			F = spring.k * (l - cur_l_0) # check the direction
 			F = direction(m1, m2) * F
 			F = F.reshape(F.shape[0], -1)
 			robot.mass_ls[spring.m1_index].F = robot.mass_ls[spring.m1_index].F + F
@@ -283,9 +280,10 @@ def mutation(solution):
 	
 	elif choice == 1:
 		# delete a mass
-		index = np.random.randint(solution.point_ls.shape[0])
+		key = np.random.choice(solution.point_dict.keys())
 		# print('index', index)
-		solution.point_ls = np.delete(solution.point_ls, index, axis=0)
+		# solution.point_ls = np.delete(solution.point_dict, index, axis=0)
+		del solution.point_dict[key]
 		# delete springs connected to the mass
 		for comb in list(solution.edge_ls): 
 			if index in comb:
@@ -328,11 +326,11 @@ counter = 0
 g = np.array([0, 0, -9.81]).reshape((3, 1))	
 ground_k = 100000
 def main():
-	popsize = 2
+	popsize = 4
 	num_of_mat = 2
 
 	
-	total_evaluation = 100
+	total_evaluation = 20
 
 	
 	dt = 0.001
@@ -348,7 +346,16 @@ def main():
 						 	  [0.,  0.1, 0.1],
 							  [0.1, 0.1, 0. ],
 							  [0.1, 0.1, 0.1]])
+	
+	# point_dict_init = defaultdict(partial(np.ndarray, 0))
+	point_dict_init = {}
+	for i in range(point_ls_init.shape[0]):
+		print('point_ls_init[i]', point_ls_init[i])
+		point_dict_init[i] = point_ls_init[i]
 
+
+	print('point_dict_init', (point_dict_init))
+	# exit()
 	edge_ls_init = set([(i,j) for i in range(len(point_ls_init)) for j in range(i+1, len(point_ls_init))])
 
 
@@ -373,7 +380,7 @@ def main():
 
 			# Shape
 
-		solution = Solution(material_ls, point_ls_init, edge_ls_init)
+		solution = Solution(material_ls, point_dict_init, edge_ls_init)
 		solutions[i] = solution
 		score_ls[i] = evaluate_sol(solution, g, dt)
 	print(score_ls)
@@ -431,7 +438,7 @@ def main():
 		score_ls[index1], score_ls[index2] = score_ls_cur[best], score_ls_cur[second]
 		solutions[index1], solutions[index2] = solutions_cur[best], solutions_cur[second]
 		best_score_ls.append(max(score_ls.values()))
-		break
+		# break
 	print('best_score_ls', best_score_ls)
 	# save solution
 	best_key = max(score_ls, key=score_ls.get) 
@@ -439,15 +446,15 @@ def main():
 
 	exit()
 	mat_ls = []
-	for mat in best_solution:
-		print(type(mat.center), type(mat.k), type(mat.b), type(mat.c))
+	for mat in best_solution.material_ls:
+		# print(type(mat.center), type(mat.k), type(mat.b), type(mat.c))
 		mat_ls.append([mat.center, mat.k, mat.b, mat.c])
-			# exit()
-		result = {'solution': mat_ls, 'best_score_ls': best_score_ls}
-		print('result', result)
-		output_path = 'cube_eval40_pop20.json'
-		with open(output_path, 'w') as outfile:
-			outfile.write(json.dumps(result, indent=4, sort_keys=True))
+
+	result = {'mat_ls': mat_ls, 'point_ls': best_solution.point_ls.tolist(), 'edge_ls':best_solution.edge_ls, 'best_score_ls': best_score_ls}
+	print('result', result)
+	output_path = 'phase_c_test.json'
+	with open(output_path, 'w') as outfile:
+		outfile.write(json.dumps(result, indent=4, sort_keys=True))
 
 if __name__ == '__main__':
 	main()
