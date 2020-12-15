@@ -8,7 +8,7 @@ robot. To employ evolutionary algorithms, a physics simulator is built to interg
 ### Representation
 ![encoding](images/encoding.png)
 ### Variation Operators - Crossover
-
+![cross](images/crossover.jpg)
 ### Variation Operators - Mutation
 ![mutation](images/mutation.png)
 ## Physics Simulator
